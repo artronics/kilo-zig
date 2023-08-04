@@ -8,8 +8,15 @@ const io = std.io;
 const stdin_fileno = std.os.STDIN_FILENO;
 var orig_termios: c.struct_termios = undefined;
 
-fn enableRawMode() void {
-    _ = c.tcgetattr(stdin_fileno, &orig_termios);
+const TerminalError = error{
+    tcgetattr,
+    tcsetattr,
+};
+
+fn enableRawMode() !void {
+    if (c.tcgetattr(stdin_fileno, &orig_termios) == -1) {
+        return TerminalError.tcgetattr;
+    }
 
     var raw = orig_termios;
 
@@ -17,8 +24,12 @@ fn enableRawMode() void {
     raw.c_oflag &= ~@as(c_ulong, c.OPOST);
     raw.c_cflag |= @as(c_ulong, c.CS8);
     raw.c_lflag &= ~@as(c_ulong, c.ECHO | c.ICANON | c.IEXTEN | c.ISIG);
+    raw.c_cc[c.VMIN] = 0;
+    raw.c_cc[c.VTIME] = 1;
 
-    _ = c.tcsetattr(stdin_fileno, c.TCSAFLUSH, &raw);
+    if (c.tcsetattr(stdin_fileno, c.TCSAFLUSH, &raw) == -1) {
+        return TerminalError.tcsetattr;
+    }
 }
 
 fn disableRawMode() void {
@@ -27,16 +38,25 @@ fn disableRawMode() void {
 
 pub fn main() !void {
     const in_reader = io.getStdIn().reader();
-    enableRawMode();
+
+    try enableRawMode();
     defer disableRawMode();
 
-    var ch: u8 = try in_reader.readByte();
-    // var ch: u8 = '0';
-    while (ch != 'q') : (ch = try in_reader.readByte()) {
-        if (std.ascii.isControl(ch)) {
-            std.log.warn("{d}\r", .{ch});
-        } else {
-            std.log.warn("{d} ('{c}')\r", .{ ch, ch });
+    while (true) {
+        if (in_reader.readByte()) |ch| {
+            if (std.ascii.isControl(ch)) {
+                std.log.warn("{d}\r", .{ch});
+            } else {
+                std.log.warn("{d} ('{c}')\r", .{ ch, ch });
+            }
+
+            if (ch == 'q') break;
+        } else |err| switch (err) {
+            error.EndOfStream => {
+                // timeout happened
+                // std.log.warn("timeout\r", .{});
+            },
+            else => |e| return e,
         }
     }
 }
