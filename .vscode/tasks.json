@@ -1,0 +1,24 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "type": "shell",
+            "command": "zig build",
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        },
+        {
+            "label": "run serach tests",
+            "type": "shell",
+            "command": "zig test -femit-bin=${workspaceFolder}/zig-out/kilo ${workspaceFolder}/src/kilo.zig",
+            "problemMatcher": [],
+            "group": {
+                "kind": "test",
+            }
+        }
+    ]
+}
