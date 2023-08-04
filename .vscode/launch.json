@@ -5,7 +5,7 @@
             "name": "run",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/zig-out/kilo-zig",
+            "program": "${workspaceFolder}/zig-out/bin/kilo-zig",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",

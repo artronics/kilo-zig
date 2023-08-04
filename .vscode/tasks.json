@@ -10,6 +10,15 @@
                 "kind": "build",
                 "isDefault": false
             }
+        },{
+            "label": "run",
+            "type": "shell",
+            "command": "zig build run",
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
         },
         {
             "label": "run serach tests",
