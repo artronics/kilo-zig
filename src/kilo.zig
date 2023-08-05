@@ -16,9 +16,11 @@ const out_writer = io.getStdOut().writer();
 const stdout_fileno = std.os.STDOUT_FILENO;
 
 var editor_config = struct {
-    orig_termios: c.struct_termios = undefined,
+    cx: usize = 0,
+    cy: usize = 0,
     screen_rows: usize = undefined,
     screen_cols: usize = undefined,
+    orig_termios: c.struct_termios = undefined,
 }{};
 
 const TerminalError = error{
@@ -145,7 +147,10 @@ fn editorRefreshScreen(allocator: Allocator) !void {
 
     try editorDrawRows(&abuf);
 
-    try abuf.appendSlice("\x1b[H");
+    var buf: [32]u8 = undefined;
+    const move_cur = try std.fmt.bufPrint(&buf, "\x1b[{d};{d}H", .{ editor_config.cx + 1, editor_config.cy + 1 });
+    try abuf.appendSlice(move_cur);
+
     try abuf.appendSlice("\x1b[?25h");
 
     try out_writer.writeAll(abuf.items);
