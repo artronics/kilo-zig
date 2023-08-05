@@ -112,10 +112,14 @@ fn editorProcessKeypress() !bool {
 }
 
 fn editorDrawRows(abuf: *ArrayList(u8)) !void {
+    // draw the line | clean the rest of the line | go to the next line
     for (0..editor_config.screen_rows - 1) |_| {
-        try abuf.appendSlice("~\r\n");
+        try abuf.appendSlice("~");
+        try abuf.appendSlice("\x1b[K");
+        try abuf.appendSlice("\r\n");
     }
     try abuf.appendSlice("~");
+    try abuf.appendSlice("\x1b[K");
 }
 
 fn editorRefreshScreen(allocator: Allocator) !void {
@@ -123,7 +127,6 @@ fn editorRefreshScreen(allocator: Allocator) !void {
     defer abuf.deinit();
 
     try abuf.appendSlice("\x1b[?25l");
-    try abuf.appendSlice("\x1b[2J");
     try abuf.appendSlice("\x1b[H");
 
     try editorDrawRows(&abuf);
