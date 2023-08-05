@@ -4,6 +4,10 @@ const std = @import("std");
 // declaratively construct a build graph that will be executed by an external
 // runner.
 pub fn build(b: *std.Build) void {
+    // Add options during build time so we can use them during compile time
+    const options = b.addOptions();
+    options.addOption([]const u8, "kilo_version", "0.1.0");
+
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
     // means any target is allowed, and the default is native. Other options
@@ -23,7 +27,12 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    // link libc so we can use termios
     exe.linkLibC();
+
+    // add options as a module. @import("kilo_options") will give us a struct with all the options we provided
+    const m = options.createModule();
+    exe.addModule("kilo_options", m);
 
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
