@@ -1,4 +1,6 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
 const c = @cImport({
     @cInclude("termios.h");
     @cInclude("sys/ioctl.h");
@@ -109,20 +111,25 @@ fn editorProcessKeypress() !bool {
     }
 }
 
-fn editorDrawRows() !void {
+fn editorDrawRows(abuf: *ArrayList(u8)) !void {
     for (0..editor_config.screen_rows - 1) |_| {
-        try out_writer.writeAll("~\r\n");
+        try abuf.appendSlice("~\r\n");
     }
-    try out_writer.writeAll("~");
+    try abuf.appendSlice("~");
 }
 
-fn editorRefreshScreen() !void {
-    try out_writer.writeAll("\x1b[2J");
-    try out_writer.writeAll("\x1b[H");
+fn editorRefreshScreen(allocator: Allocator) !void {
+    var abuf = ArrayList(u8).init(allocator);
+    defer abuf.deinit();
 
-    try editorDrawRows();
+    try abuf.appendSlice("\x1b[2J");
+    try abuf.appendSlice("\x1b[H");
 
-    try out_writer.writeAll("\x1b[H");
+    try editorDrawRows(&abuf);
+
+    try abuf.appendSlice("\x1b[H");
+
+    try out_writer.writeAll(abuf.items);
 }
 
 fn initEditor() !void {
@@ -138,8 +145,11 @@ pub fn main() !void {
     }
     try initEditor();
 
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+
     while (true) {
-        try editorRefreshScreen();
+        try editorRefreshScreen(allocator);
         const quit = try editorProcessKeypress();
         if (quit) break;
     }
