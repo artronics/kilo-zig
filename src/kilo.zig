@@ -1,6 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
+const kilo_options = @import("kilo_options");
 const c = @cImport({
     @cInclude("termios.h");
     @cInclude("sys/ioctl.h");
@@ -113,10 +114,23 @@ fn editorProcessKeypress() !bool {
 
 fn editorDrawRows(abuf: *ArrayList(u8)) !void {
     // draw the line | clean the rest of the line | go to the next line
-    for (0..editor_config.screen_rows - 1) |_| {
-        try abuf.appendSlice("~");
-        try abuf.appendSlice("\x1b[K");
+    const rows = editor_config.screen_rows;
+    const cols = editor_config.screen_cols;
+    for (0..rows - 1) |y| {
+        if (y == rows / 3) {
+            var buf: [80]u8 = undefined;
+            const welcome = try std.fmt.bufPrint(&buf, "KiloZig editor -- version {s}", .{kilo_options.kilo_version});
+            const welcome_adjusted = welcome[0..@min(welcome.len, cols)];
+            const padding = (cols - welcome_adjusted.len) / 2;
+            for (0..padding) |_| {
+                try abuf.append(' ');
+            }
+            try abuf.appendSlice(welcome);
+        } else {
+            try abuf.appendSlice("~");
+        }
         try abuf.appendSlice("\r\n");
+        try abuf.appendSlice("\x1b[K");
     }
     try abuf.appendSlice("~");
     try abuf.appendSlice("\x1b[K");
