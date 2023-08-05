@@ -120,8 +120,8 @@ fn editorDrawRows(abuf: *ArrayList(u8)) !void {
         if (y == rows / 3) {
             var buf: [80]u8 = undefined;
             const welcome = try std.fmt.bufPrint(&buf, "KiloZig editor -- version {s}", .{kilo_options.kilo_version});
-            const welcome_adjusted = welcome[0..@min(welcome.len, cols)];
-            const padding = (cols - welcome_adjusted.len) / 2;
+            const msg = welcome[0..@min(welcome.len, cols)];
+            const padding = (cols - msg.len) / 2;
             for (0..padding) |_| {
                 try abuf.append(' ');
             }
@@ -129,11 +129,11 @@ fn editorDrawRows(abuf: *ArrayList(u8)) !void {
         } else {
             try abuf.appendSlice("~");
         }
-        try abuf.appendSlice("\r\n");
         try abuf.appendSlice("\x1b[K");
+        try abuf.appendSlice("\r\n");
     }
-    try abuf.appendSlice("~");
     try abuf.appendSlice("\x1b[K");
+    try abuf.appendSlice("~");
 }
 
 fn editorRefreshScreen(allocator: Allocator) !void {
