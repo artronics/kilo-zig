@@ -122,12 +122,14 @@ fn editorRefreshScreen(allocator: Allocator) !void {
     var abuf = ArrayList(u8).init(allocator);
     defer abuf.deinit();
 
+    try abuf.appendSlice("\x1b[?25l");
     try abuf.appendSlice("\x1b[2J");
     try abuf.appendSlice("\x1b[H");
 
     try editorDrawRows(&abuf);
 
     try abuf.appendSlice("\x1b[H");
+    try abuf.appendSlice("\x1b[?25h");
 
     try out_writer.writeAll(abuf.items);
 }
