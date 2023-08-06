@@ -23,7 +23,7 @@ const EditorConfig = struct {
     cy: usize = 0,
     screen_rows: usize = undefined,
     screen_cols: usize = undefined,
-    num_rows: usize = 0,
+    row_offset: usize = 0,
     row: ArrayList(Erow),
     orig_termios: c.struct_termios = undefined,
 
@@ -220,7 +220,7 @@ fn editorMoveCursor(ch: EditorKey) void {
             }
         },
         EditorKey.arrow_down => {
-            if (editor_config.cy != editor_config.screen_rows - 1) {
+            if (editor_config.cy < editor_config.row.items.len) {
                 editor_config.cy += 1;
             }
         },
@@ -261,13 +261,24 @@ fn editorProcessKeypress() !bool {
     return quit;
 }
 
+fn editorScroll() void {
+    if (editor_config.cy < editor_config.row_offset) {
+        editor_config.row_offset = editor_config.cy;
+    }
+    if (editor_config.cy >= editor_config.row_offset + editor_config.screen_rows) {
+        editor_config.row_offset = editor_config.cy - editor_config.screen_rows + 1;
+    }
+}
+
 fn editorDrawRows(abuf: *ArrayList(u8)) !void {
     // draw the line | clean the rest of the line | go to the next line
     const rows = editor_config.screen_rows;
     const cols = editor_config.screen_cols;
+    const num_rows = editor_config.row.items.len;
     for (0..rows - 1) |y| {
-        if (y >= editor_config.row.items.len) {
-            if (editor_config.num_rows == 0 and y == rows / 3) {
+        var file_row = y + editor_config.row_offset;
+        if (file_row >= num_rows) {
+            if (num_rows == 0 and y == rows / 3) {
                 var buf: [80]u8 = undefined;
                 const welcome = try std.fmt.bufPrint(&buf, "KiloZig editor -- version {s}", .{kilo_options.kilo_version});
                 const msg = welcome[0..@min(welcome.len, cols)];
@@ -284,7 +295,7 @@ fn editorDrawRows(abuf: *ArrayList(u8)) !void {
                 try abuf.appendSlice("~");
             }
         } else {
-            const row = editor_config.row.items[y];
+            const row = editor_config.row.items[file_row];
             const l = @min(editor_config.screen_cols, row.len);
             try abuf.appendSlice(row[0..l]);
         }
@@ -300,13 +311,15 @@ fn editorRefreshScreen(allocator: Allocator) !void {
     var abuf = ArrayList(u8).init(allocator);
     defer abuf.deinit();
 
+    editorScroll();
+
     try abuf.appendSlice("\x1b[?25l");
     try abuf.appendSlice("\x1b[H");
 
     try editorDrawRows(&abuf);
 
     var buf: [32]u8 = undefined;
-    const move_cur = try std.fmt.bufPrint(&buf, "\x1b[{d};{d}H", .{ editor_config.cy + 1, editor_config.cx + 1 });
+    const move_cur = try std.fmt.bufPrint(&buf, "\x1b[{d};{d}H", .{ editor_config.cy - editor_config.row_offset + 1, editor_config.cx + 1 });
     try abuf.appendSlice(move_cur);
 
     try abuf.appendSlice("\x1b[?25h");
