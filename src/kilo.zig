@@ -42,7 +42,7 @@ const EditorConfig = struct {
     }
 };
 
-var editor_config: EditorConfig = undefined;
+var ec: EditorConfig = undefined;
 
 const EditorKey = union(enum) {
     char: u8,
@@ -70,11 +70,11 @@ const TerminalError = error{
 };
 
 fn enableRawMode() !void {
-    if (c.tcgetattr(stdin_fileno, &editor_config.orig_termios) == -1) {
+    if (c.tcgetattr(stdin_fileno, &ec.orig_termios) == -1) {
         return TerminalError.tcgetattr;
     }
 
-    var raw = editor_config.orig_termios;
+    var raw = ec.orig_termios;
 
     raw.c_iflag &= ~@as(c_ulong, c.BRKINT | c.ICRNL | c.INPCK | c.ISTRIP | c.IXON);
     raw.c_oflag &= ~@as(c_ulong, c.OPOST);
@@ -89,7 +89,7 @@ fn enableRawMode() !void {
 }
 
 fn disableRawMode() void {
-    _ = c.tcsetattr(stdin_fileno, c.TCSAFLUSH, &editor_config.orig_termios);
+    _ = c.tcsetattr(stdin_fileno, c.TCSAFLUSH, &ec.orig_termios);
 }
 
 fn ctrl_key(ch: u8) u8 {
@@ -182,7 +182,7 @@ fn editorAppendRow(allocator: Allocator, row: []const u8) !void {
     var row_cp = try allocator.alloc(u8, row.len);
     @memcpy(row_cp, row);
 
-    try editor_config.row.append(row_cp);
+    try ec.row.append(row_cp);
 }
 
 fn editorOpen(allocator: Allocator, file: []const u8) !void {
@@ -205,23 +205,23 @@ fn editorOpen(allocator: Allocator, file: []const u8) !void {
 fn editorMoveCursor(ch: EditorKey) void {
     switch (ch) {
         EditorKey.arrow_left => {
-            if (editor_config.cx != 0) {
-                editor_config.cx -= 1;
+            if (ec.cx != 0) {
+                ec.cx -= 1;
             }
         },
         EditorKey.arrow_right => {
-            if (editor_config.cx != editor_config.screen_cols - 1) {
-                editor_config.cx += 1;
+            if (ec.cx != ec.screen_cols - 1) {
+                ec.cx += 1;
             }
         },
         EditorKey.arrow_up => {
-            if (editor_config.cy != 0) {
-                editor_config.cy -= 1;
+            if (ec.cy != 0) {
+                ec.cy -= 1;
             }
         },
         EditorKey.arrow_down => {
-            if (editor_config.cy < editor_config.row.items.len) {
-                editor_config.cy += 1;
+            if (ec.cy < ec.row.items.len) {
+                ec.cy += 1;
             }
         },
         else => unreachable,
@@ -236,20 +236,20 @@ fn editorProcessKeypress() !bool {
             editorMoveCursor(key);
         },
         EditorKey.page_up => {
-            for (0..editor_config.screen_rows) |_| {
+            for (0..ec.screen_rows) |_| {
                 editorMoveCursor(EditorKey.arrow_up);
             }
         },
         EditorKey.page_down => {
-            for (0..editor_config.screen_rows) |_| {
+            for (0..ec.screen_rows) |_| {
                 editorMoveCursor(EditorKey.arrow_down);
             }
         },
         EditorKey.home_key => {
-            editor_config.cx = 0;
+            ec.cx = 0;
         },
         EditorKey.end_key => {
-            editor_config.cx += editor_config.screen_cols - 1;
+            ec.cx += ec.screen_cols - 1;
         },
         EditorKey.del_key => {},
         EditorKey.char => |ch| {
@@ -262,21 +262,21 @@ fn editorProcessKeypress() !bool {
 }
 
 fn editorScroll() void {
-    if (editor_config.cy < editor_config.row_offset) {
-        editor_config.row_offset = editor_config.cy;
+    if (ec.cy < ec.row_offset) {
+        ec.row_offset = ec.cy;
     }
-    if (editor_config.cy >= editor_config.row_offset + editor_config.screen_rows) {
-        editor_config.row_offset = editor_config.cy - editor_config.screen_rows + 1;
+    if (ec.cy >= ec.row_offset + ec.screen_rows) {
+        ec.row_offset = ec.cy - ec.screen_rows + 1;
     }
 }
 
 fn editorDrawRows(abuf: *ArrayList(u8)) !void {
     // draw the line | clean the rest of the line | go to the next line
-    const rows = editor_config.screen_rows;
-    const cols = editor_config.screen_cols;
-    const num_rows = editor_config.row.items.len;
+    const rows = ec.screen_rows;
+    const cols = ec.screen_cols;
+    const num_rows = ec.row.items.len;
     for (0..rows - 1) |y| {
-        var file_row = y + editor_config.row_offset;
+        var file_row = y + ec.row_offset;
         if (file_row >= num_rows) {
             if (num_rows == 0 and y == rows / 3) {
                 var buf: [80]u8 = undefined;
@@ -295,13 +295,13 @@ fn editorDrawRows(abuf: *ArrayList(u8)) !void {
                 try abuf.appendSlice("~");
             }
         } else {
-            const row = editor_config.row.items[file_row];
-            const l = @min(editor_config.screen_cols, row.len);
+            const row = ec.row.items[file_row];
+            const l = @min(ec.screen_cols, row.len);
             try abuf.appendSlice(row[0..l]);
         }
 
         try abuf.appendSlice("\x1b[K");
-        if (y < editor_config.screen_rows - 1) {
+        if (y < ec.screen_rows - 1) {
             try abuf.appendSlice("\r\n");
         }
     }
@@ -319,7 +319,7 @@ fn editorRefreshScreen(allocator: Allocator) !void {
     try editorDrawRows(&abuf);
 
     var buf: [32]u8 = undefined;
-    const move_cur = try std.fmt.bufPrint(&buf, "\x1b[{d};{d}H", .{ editor_config.cy - editor_config.row_offset + 1, editor_config.cx + 1 });
+    const move_cur = try std.fmt.bufPrint(&buf, "\x1b[{d};{d}H", .{ ec.cy - ec.row_offset + 1, ec.cx + 1 });
     try abuf.appendSlice(move_cur);
 
     try abuf.appendSlice("\x1b[?25h");
@@ -328,8 +328,8 @@ fn editorRefreshScreen(allocator: Allocator) !void {
 }
 
 fn initEditor(allocator: Allocator) !void {
-    editor_config = EditorConfig.init(allocator);
-    try getWindowSize(&editor_config.screen_rows, &editor_config.screen_cols);
+    ec = EditorConfig.init(allocator);
+    try getWindowSize(&ec.screen_rows, &ec.screen_cols);
 }
 
 pub fn main() !void {
@@ -343,7 +343,7 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     try initEditor(allocator);
-    defer editor_config.deinit();
+    defer ec.deinit();
 
     const args = try std.process.argsAlloc(allocator);
     if (args.len > 1) {
