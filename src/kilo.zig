@@ -23,6 +23,8 @@ var editor_config = struct {
     orig_termios: c.struct_termios = undefined,
 }{};
 
+const EditorKey = enum(u8) { arrow_left = 'a', arrow_right = 'd', arrow_up = 'w', arrow_down = 's' };
+
 const TerminalError = error{
     tcgetattr,
     tcsetattr,
@@ -59,6 +61,21 @@ fn ctrl_key(ch: u8) u8 {
 
 fn editorReadKey() !?u8 {
     if (in_reader.readByte()) |ch| {
+        if (ch == 0x1b) {
+            const ch1 = in_reader.readByte() catch 0x1b;
+            const ch2 = in_reader.readByte() catch 0x1b;
+            return if (ch1 == '[') {
+                return switch (ch2) {
+                    'A' => @intFromEnum(EditorKey.arrow_up),
+                    'B' => @intFromEnum(EditorKey.arrow_down),
+                    'C' => @intFromEnum(EditorKey.arrow_right),
+                    'D' => @intFromEnum(EditorKey.arrow_left),
+                    else => ch2,
+                };
+            } else {
+                return ch1;
+            };
+        }
         return ch;
     } else |err| switch (err) {
         error.EndOfStream => {
@@ -100,12 +117,31 @@ fn getWindowSize(rows: *usize, cols: *usize) !void {
     }
 }
 
+fn editorMoveCursor(ch: u8) void {
+    switch (ch) {
+        @intFromEnum(EditorKey.arrow_left) => {
+            editor_config.cx -= 1;
+        },
+        @intFromEnum(EditorKey.arrow_right) => {
+            editor_config.cx += 1;
+        },
+        @intFromEnum(EditorKey.arrow_up) => {
+            editor_config.cy -= 1;
+        },
+        @intFromEnum(EditorKey.arrow_down) => {
+            editor_config.cy += 1;
+        },
+        else => unreachable,
+    }
+}
+
 fn editorProcessKeypress() !bool {
     if (try editorReadKey()) |ch| {
-        if (std.ascii.isControl(ch)) {
-            std.log.warn("{d}\r", .{ch});
-        } else {
-            std.log.warn("{d} ('{c}')\r", .{ ch, ch });
+        switch (ch) {
+            @intFromEnum(EditorKey.arrow_left), @intFromEnum(EditorKey.arrow_right), @intFromEnum(EditorKey.arrow_up), @intFromEnum(EditorKey.arrow_down) => {
+                editorMoveCursor(ch);
+            },
+            else => {},
         }
         return ch == ctrl_key('q');
     } else {
@@ -148,7 +184,7 @@ fn editorRefreshScreen(allocator: Allocator) !void {
     try editorDrawRows(&abuf);
 
     var buf: [32]u8 = undefined;
-    const move_cur = try std.fmt.bufPrint(&buf, "\x1b[{d};{d}H", .{ editor_config.cx + 1, editor_config.cy + 1 });
+    const move_cur = try std.fmt.bufPrint(&buf, "\x1b[{d};{d}H", .{ editor_config.cy + 1, editor_config.cx + 1 });
     try abuf.appendSlice(move_cur);
 
     try abuf.appendSlice("\x1b[?25h");
