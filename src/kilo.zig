@@ -24,6 +24,7 @@ const EditorConfig = struct {
     screen_rows: usize = undefined,
     screen_cols: usize = undefined,
     row_offset: usize = 0,
+    col_offset: usize = 0,
     row: ArrayList(Erow),
     orig_termios: c.struct_termios = undefined,
 
@@ -210,9 +211,7 @@ fn editorMoveCursor(ch: EditorKey) void {
             }
         },
         EditorKey.arrow_right => {
-            if (ec.cx != ec.screen_cols - 1) {
-                ec.cx += 1;
-            }
+            ec.cx += 1;
         },
         EditorKey.arrow_up => {
             if (ec.cy != 0) {
@@ -268,6 +267,12 @@ fn editorScroll() void {
     if (ec.cy >= ec.row_offset + ec.screen_rows) {
         ec.row_offset = ec.cy - ec.screen_rows + 1;
     }
+    if (ec.cx < ec.col_offset) {
+        ec.col_offset = ec.cx;
+    }
+    if (ec.cx >= ec.col_offset + ec.screen_cols) {
+        ec.col_offset = ec.cx - ec.screen_cols + 1;
+    }
 }
 
 fn editorDrawRows(abuf: *ArrayList(u8)) !void {
@@ -296,8 +301,12 @@ fn editorDrawRows(abuf: *ArrayList(u8)) !void {
             }
         } else {
             const row = ec.row.items[file_row];
-            const l = @min(ec.screen_cols, row.len);
-            try abuf.appendSlice(row[0..l]);
+            // const row_col_offset = @max(0, row.len - ec.col_offset);
+            // const row_start = std.math.sub(usize, ec.col_offset, row.len) catch 0;
+            const row_start = if (ec.col_offset > row.len) 0 else ec.col_offset;
+            const row_len = row.len - row_start;
+            const l = @min(ec.screen_cols, row_len);
+            try abuf.appendSlice(row[row_start .. row_start + l]);
         }
 
         try abuf.appendSlice("\x1b[K");
@@ -319,7 +328,7 @@ fn editorRefreshScreen(allocator: Allocator) !void {
     try editorDrawRows(&abuf);
 
     var buf: [32]u8 = undefined;
-    const move_cur = try std.fmt.bufPrint(&buf, "\x1b[{d};{d}H", .{ ec.cy - ec.row_offset + 1, ec.cx + 1 });
+    const move_cur = try std.fmt.bufPrint(&buf, "\x1b[{d};{d}H", .{ ec.cy - ec.row_offset + 1, ec.cx - ec.col_offset + 1 });
     try abuf.appendSlice(move_cur);
 
     try abuf.appendSlice("\x1b[?25h");
