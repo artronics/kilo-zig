@@ -23,7 +23,6 @@ var editor_config = struct {
     orig_termios: c.struct_termios = undefined,
 }{};
 
-// const EditorKey = enum(u8) { arrow_left = 'a', arrow_right = 'd', arrow_up = 'w', arrow_down = 's' };
 const EditorKey = union(enum) {
     char: u8,
 
@@ -33,6 +32,9 @@ const EditorKey = union(enum) {
     arrow_right,
     arrow_up,
     arrow_down,
+
+    page_up,
+    page_down,
 };
 
 const TerminalError = error{
@@ -71,11 +73,22 @@ fn ctrl_key(ch: u8) u8 {
 
 fn editorReadKey() !EditorKey {
     if (in_reader.readByte()) |ch| {
-        if (ch == 0x1b) {
-            const ch1 = in_reader.readByte() catch 0x1b;
-            const ch2 = in_reader.readByte() catch 0x1b;
+        const esc = 0x1b;
+        if (ch == esc) {
+            const ch1 = in_reader.readByte() catch esc;
+            const ch2 = in_reader.readByte() catch esc;
             return if (ch1 == '[') {
                 return switch (ch2) {
+                    '0'...'9' => {
+                        const ch3 = in_reader.readByte() catch esc;
+                        return if (ch3 == '~') {
+                            return switch (ch2) {
+                                '5' => EditorKey.page_up,
+                                '6' => EditorKey.page_down,
+                                else => EditorKey{ .char = ch2 },
+                            };
+                        } else return EditorKey{ .char = ch3 };
+                    },
                     'A' => EditorKey.arrow_up,
                     'B' => EditorKey.arrow_down,
                     'C' => EditorKey.arrow_right,
@@ -155,20 +168,28 @@ fn editorMoveCursor(ch: EditorKey) void {
 
 fn editorProcessKeypress() !bool {
     const key = try editorReadKey();
-    return switch (key) {
+    var quit = false;
+    switch (key) {
         EditorKey.arrow_left, EditorKey.arrow_right, EditorKey.arrow_up, EditorKey.arrow_down => {
             editorMoveCursor(key);
-            return false;
         },
-        EditorKey.char => |ch| {
-            if (ch == ctrl_key('q')) {
-                return true;
-            } else {
-                return false;
+        EditorKey.page_up => {
+            for (0..editor_config.screen_rows) |_| {
+                editorMoveCursor(EditorKey.arrow_up);
             }
         },
-        EditorKey.timeout => false,
-    };
+        EditorKey.page_down => {
+            for (0..editor_config.screen_rows) |_| {
+                editorMoveCursor(EditorKey.arrow_down);
+            }
+        },
+        EditorKey.char => |ch| {
+            quit = ch == ctrl_key('q');
+        },
+        EditorKey.timeout => {},
+    }
+
+    return quit;
 }
 
 fn editorDrawRows(abuf: *ArrayList(u8)) !void {
