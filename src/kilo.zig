@@ -23,7 +23,17 @@ var editor_config = struct {
     orig_termios: c.struct_termios = undefined,
 }{};
 
-const EditorKey = enum(u8) { arrow_left = 'a', arrow_right = 'd', arrow_up = 'w', arrow_down = 's' };
+// const EditorKey = enum(u8) { arrow_left = 'a', arrow_right = 'd', arrow_up = 'w', arrow_down = 's' };
+const EditorKey = union(enum) {
+    char: u8,
+
+    timeout,
+
+    arrow_left,
+    arrow_right,
+    arrow_up,
+    arrow_down,
+};
 
 const TerminalError = error{
     tcgetattr,
@@ -59,29 +69,29 @@ fn ctrl_key(ch: u8) u8 {
     return 0x1f & ch;
 }
 
-fn editorReadKey() !?u8 {
+fn editorReadKey() !EditorKey {
     if (in_reader.readByte()) |ch| {
         if (ch == 0x1b) {
             const ch1 = in_reader.readByte() catch 0x1b;
             const ch2 = in_reader.readByte() catch 0x1b;
             return if (ch1 == '[') {
                 return switch (ch2) {
-                    'A' => @intFromEnum(EditorKey.arrow_up),
-                    'B' => @intFromEnum(EditorKey.arrow_down),
-                    'C' => @intFromEnum(EditorKey.arrow_right),
-                    'D' => @intFromEnum(EditorKey.arrow_left),
-                    else => ch2,
+                    'A' => EditorKey.arrow_up,
+                    'B' => EditorKey.arrow_down,
+                    'C' => EditorKey.arrow_right,
+                    'D' => EditorKey.arrow_left,
+                    else => EditorKey{ .char = ch2 },
                 };
             } else {
-                return ch1;
+                return EditorKey{ .char = ch1 };
             };
         }
-        return ch;
+        return EditorKey{ .char = ch };
     } else |err| switch (err) {
         error.EndOfStream => {
             // timeout happened
             // std.log.warn("timeout\r", .{});
-            return null;
+            return EditorKey.timeout;
         },
         else => |e| return e,
     }
@@ -117,37 +127,48 @@ fn getWindowSize(rows: *usize, cols: *usize) !void {
     }
 }
 
-fn editorMoveCursor(ch: u8) void {
+fn editorMoveCursor(ch: EditorKey) void {
     switch (ch) {
-        @intFromEnum(EditorKey.arrow_left) => {
-            editor_config.cx -= 1;
+        EditorKey.arrow_left => {
+            if (editor_config.cx != 0) {
+                editor_config.cx -= 1;
+            }
         },
-        @intFromEnum(EditorKey.arrow_right) => {
-            editor_config.cx += 1;
+        EditorKey.arrow_right => {
+            if (editor_config.cx != editor_config.screen_cols - 1) {
+                editor_config.cx += 1;
+            }
         },
-        @intFromEnum(EditorKey.arrow_up) => {
-            editor_config.cy -= 1;
+        EditorKey.arrow_up => {
+            if (editor_config.cy != 0) {
+                editor_config.cy -= 1;
+            }
         },
-        @intFromEnum(EditorKey.arrow_down) => {
-            editor_config.cy += 1;
+        EditorKey.arrow_down => {
+            if (editor_config.cy != editor_config.screen_rows - 1) {
+                editor_config.cy += 1;
+            }
         },
         else => unreachable,
     }
 }
 
 fn editorProcessKeypress() !bool {
-    if (try editorReadKey()) |ch| {
-        switch (ch) {
-            @intFromEnum(EditorKey.arrow_left), @intFromEnum(EditorKey.arrow_right), @intFromEnum(EditorKey.arrow_up), @intFromEnum(EditorKey.arrow_down) => {
-                editorMoveCursor(ch);
-            },
-            else => {},
-        }
-        return ch == ctrl_key('q');
-    } else {
-        // timeout
-        return false;
-    }
+    const key = try editorReadKey();
+    return switch (key) {
+        EditorKey.arrow_left, EditorKey.arrow_right, EditorKey.arrow_up, EditorKey.arrow_down => {
+            editorMoveCursor(key);
+            return false;
+        },
+        EditorKey.char => |ch| {
+            if (ch == ctrl_key('q')) {
+                return true;
+            } else {
+                return false;
+            }
+        },
+        EditorKey.timeout => false,
+    };
 }
 
 fn editorDrawRows(abuf: *ArrayList(u8)) !void {
