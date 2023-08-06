@@ -15,13 +15,28 @@ const stdin_fileno = std.os.STDIN_FILENO;
 const out_writer = io.getStdOut().writer();
 const stdout_fileno = std.os.STDOUT_FILENO;
 
-var editor_config = struct {
+const Erow = []u8;
+
+const EditorConfig = struct {
+    allocator: Allocator,
     cx: usize = 0,
     cy: usize = 0,
     screen_rows: usize = undefined,
     screen_cols: usize = undefined,
+    num_rows: usize = 0,
+    row: Erow = undefined,
     orig_termios: c.struct_termios = undefined,
-}{};
+
+    fn init(allocator: Allocator) EditorConfig {
+        return EditorConfig{ .allocator = allocator };
+    }
+
+    fn deinit(self: EditorConfig) void {
+        self.allocator.free(self.row);
+    }
+};
+
+var editor_config: EditorConfig = undefined;
 
 const EditorKey = union(enum) {
     char: u8,
@@ -157,6 +172,21 @@ fn getWindowSize(rows: *usize, cols: *usize) !void {
     }
 }
 
+fn editorOpen(allocator: Allocator, file: []const u8) !void {
+    var f = try std.fs.cwd().openFile(file, .{});
+    defer f.close();
+
+    const content = try f.readToEndAlloc(allocator, std.math.maxInt(usize));
+    defer allocator.free(content);
+
+    var line_len: usize = 0;
+    while (content[line_len] != '\n' and content[line_len] != '\r') : (line_len += 1) {}
+    const line = try std.fmt.allocPrint(allocator, "{s}", .{content[0..line_len]});
+
+    editor_config.row = line;
+    editor_config.num_rows = 1;
+}
+
 fn editorMoveCursor(ch: EditorKey) void {
     switch (ch) {
         EditorKey.arrow_left => {
@@ -221,23 +251,34 @@ fn editorDrawRows(abuf: *ArrayList(u8)) !void {
     const rows = editor_config.screen_rows;
     const cols = editor_config.screen_cols;
     for (0..rows - 1) |y| {
-        if (y == rows / 3) {
-            var buf: [80]u8 = undefined;
-            const welcome = try std.fmt.bufPrint(&buf, "KiloZig editor -- version {s}", .{kilo_options.kilo_version});
-            const msg = welcome[0..@min(welcome.len, cols)];
-            const padding = (cols - msg.len) / 2;
-            for (0..padding) |_| {
-                try abuf.append(' ');
+        if (y >= editor_config.num_rows) {
+            if (editor_config.num_rows == 0 and y == rows / 3) {
+                var buf: [80]u8 = undefined;
+                const welcome = try std.fmt.bufPrint(&buf, "KiloZig editor -- version {s}", .{kilo_options.kilo_version});
+                const msg = welcome[0..@min(welcome.len, cols)];
+                var padding = (cols - msg.len) / 2;
+                if (padding != 0) {
+                    try abuf.append('~');
+                    padding -= 1;
+                }
+                for (0..padding) |_| {
+                    try abuf.append(' ');
+                }
+                try abuf.appendSlice(welcome);
+            } else {
+                try abuf.appendSlice("~");
             }
-            try abuf.appendSlice(welcome);
         } else {
-            try abuf.appendSlice("~");
+            const row = editor_config.row;
+            const l = @min(editor_config.screen_cols, row.len);
+            try abuf.appendSlice(row[0..l]);
         }
+
         try abuf.appendSlice("\x1b[K");
-        try abuf.appendSlice("\r\n");
+        if (y < editor_config.screen_rows - 1) {
+            try abuf.appendSlice("\r\n");
+        }
     }
-    try abuf.appendSlice("\x1b[K");
-    try abuf.appendSlice("~");
 }
 
 fn editorRefreshScreen(allocator: Allocator) !void {
@@ -258,7 +299,8 @@ fn editorRefreshScreen(allocator: Allocator) !void {
     try out_writer.writeAll(abuf.items);
 }
 
-fn initEditor() !void {
+fn initEditor(allocator: Allocator) !void {
+    editor_config = EditorConfig.init(allocator);
     try getWindowSize(&editor_config.screen_rows, &editor_config.screen_cols);
 }
 
@@ -266,19 +308,33 @@ pub fn main() !void {
     try enableRawMode();
     defer disableRawMode();
     defer {
-        out_writer.writeAll("\x1b[2J") catch {};
-        out_writer.writeAll("\x1b[H") catch {};
+        // out_writer.writeAll("\x1b[2J") catch {};
+        // out_writer.writeAll("\x1b[H") catch {};
     }
-    try initEditor();
-
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
+
+    try initEditor(allocator);
+    defer editor_config.deinit();
+
+    const args = try std.process.argsAlloc(allocator);
+    if (args.len > 1) {
+        try editorOpen(allocator, args[1]);
+    }
 
     while (true) {
         try editorRefreshScreen(allocator);
         const quit = try editorProcessKeypress();
         if (quit) break;
     }
+
+    var f = try std.fs.cwd().openFile(args[1], .{});
+    defer f.close();
+
+    var line_len: usize = 0;
+    const content = try f.readToEndAlloc(allocator, std.math.maxInt(usize));
+    while (content[line_len] == '\n' or content[line_len] == '\r') : (line_len += 1) {}
+    std.log.warn("{s}", .{content[0..content.len]});
 }
 
 test "kilo test" {}
