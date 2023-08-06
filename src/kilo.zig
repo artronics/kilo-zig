@@ -24,15 +24,21 @@ const EditorConfig = struct {
     screen_rows: usize = undefined,
     screen_cols: usize = undefined,
     num_rows: usize = 0,
-    row: Erow = undefined,
+    row: ArrayList(Erow),
     orig_termios: c.struct_termios = undefined,
 
     fn init(allocator: Allocator) EditorConfig {
-        return EditorConfig{ .allocator = allocator };
+        return EditorConfig{
+            .allocator = allocator,
+            .row = ArrayList(Erow).init(allocator),
+        };
     }
 
     fn deinit(self: EditorConfig) void {
-        self.allocator.free(self.row);
+        for (self.row.items) |i| {
+            self.allocator.free(i);
+        }
+        self.row.deinit();
     }
 };
 
@@ -172,6 +178,13 @@ fn getWindowSize(rows: *usize, cols: *usize) !void {
     }
 }
 
+fn editorAppendRow(allocator: Allocator, row: []const u8) !void {
+    var row_cp = try allocator.alloc(u8, row.len);
+    @memcpy(row_cp, row);
+
+    try editor_config.row.append(row_cp);
+}
+
 fn editorOpen(allocator: Allocator, file: []const u8) !void {
     var f = try std.fs.cwd().openFile(file, .{});
     defer f.close();
@@ -179,12 +192,14 @@ fn editorOpen(allocator: Allocator, file: []const u8) !void {
     const content = try f.readToEndAlloc(allocator, std.math.maxInt(usize));
     defer allocator.free(content);
 
-    var line_len: usize = 0;
-    while (content[line_len] != '\n' and content[line_len] != '\r') : (line_len += 1) {}
-    const line = try std.fmt.allocPrint(allocator, "{s}", .{content[0..line_len]});
+    var i: usize = 0;
+    while (i < content.len) : (i += 1) {
+        if (i < content.len and content[i] == '\r') i += 1;
+        var line_start: usize = i;
 
-    editor_config.row = line;
-    editor_config.num_rows = 1;
+        while (i < content.len and content[i] != '\n') : (i += 1) {}
+        try editorAppendRow(allocator, content[line_start..i]);
+    }
 }
 
 fn editorMoveCursor(ch: EditorKey) void {
@@ -251,7 +266,7 @@ fn editorDrawRows(abuf: *ArrayList(u8)) !void {
     const rows = editor_config.screen_rows;
     const cols = editor_config.screen_cols;
     for (0..rows - 1) |y| {
-        if (y >= editor_config.num_rows) {
+        if (y >= editor_config.row.items.len) {
             if (editor_config.num_rows == 0 and y == rows / 3) {
                 var buf: [80]u8 = undefined;
                 const welcome = try std.fmt.bufPrint(&buf, "KiloZig editor -- version {s}", .{kilo_options.kilo_version});
@@ -269,7 +284,7 @@ fn editorDrawRows(abuf: *ArrayList(u8)) !void {
                 try abuf.appendSlice("~");
             }
         } else {
-            const row = editor_config.row;
+            const row = editor_config.row.items[y];
             const l = @min(editor_config.screen_cols, row.len);
             try abuf.appendSlice(row[0..l]);
         }
@@ -308,8 +323,8 @@ pub fn main() !void {
     try enableRawMode();
     defer disableRawMode();
     defer {
-        // out_writer.writeAll("\x1b[2J") catch {};
-        // out_writer.writeAll("\x1b[H") catch {};
+        out_writer.writeAll("\x1b[2J") catch {};
+        out_writer.writeAll("\x1b[H") catch {};
     }
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
@@ -327,14 +342,6 @@ pub fn main() !void {
         const quit = try editorProcessKeypress();
         if (quit) break;
     }
-
-    var f = try std.fs.cwd().openFile(args[1], .{});
-    defer f.close();
-
-    var line_len: usize = 0;
-    const content = try f.readToEndAlloc(allocator, std.math.maxInt(usize));
-    while (content[line_len] == '\n' or content[line_len] == '\r') : (line_len += 1) {}
-    std.log.warn("{s}", .{content[0..content.len]});
 }
 
 test "kilo test" {}
