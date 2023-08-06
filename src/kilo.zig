@@ -204,6 +204,8 @@ fn editorOpen(allocator: Allocator, file: []const u8) !void {
 }
 
 fn editorMoveCursor(ch: EditorKey) void {
+    const row: ?Erow = if (ec.cy >= ec.row.items.len) null else ec.row.items[ec.cy];
+
     switch (ch) {
         EditorKey.arrow_left => {
             if (ec.cx != 0) {
@@ -211,7 +213,9 @@ fn editorMoveCursor(ch: EditorKey) void {
             }
         },
         EditorKey.arrow_right => {
-            ec.cx += 1;
+            if (row != null and ec.cx < row.?.len) {
+                ec.cx += 1;
+            }
         },
         EditorKey.arrow_up => {
             if (ec.cy != 0) {
@@ -301,12 +305,13 @@ fn editorDrawRows(abuf: *ArrayList(u8)) !void {
             }
         } else {
             const row = ec.row.items[file_row];
-            // const row_col_offset = @max(0, row.len - ec.col_offset);
-            // const row_start = std.math.sub(usize, ec.col_offset, row.len) catch 0;
-            const row_start = if (ec.col_offset > row.len) 0 else ec.col_offset;
-            const row_len = row.len - row_start;
-            const l = @min(ec.screen_cols, row_len);
-            try abuf.appendSlice(row[row_start .. row_start + l]);
+            if (ec.col_offset > row.len) {
+                try abuf.appendSlice("");
+            } else {
+                const row_len = row.len - ec.col_offset;
+                const l = @min(ec.screen_cols, row_len);
+                try abuf.appendSlice(row[ec.col_offset .. ec.col_offset + l]);
+            }
         }
 
         try abuf.appendSlice("\x1b[K");
