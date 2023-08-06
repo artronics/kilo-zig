@@ -35,6 +35,8 @@ const EditorKey = union(enum) {
 
     page_up,
     page_down,
+    home_key,
+    end_key,
 };
 
 const TerminalError = error{
@@ -83,20 +85,32 @@ fn editorReadKey() !EditorKey {
                         const ch3 = in_reader.readByte() catch esc;
                         return if (ch3 == '~') {
                             return switch (ch2) {
+                                '1' => EditorKey.home_key,
+                                '4' => EditorKey.end_key,
                                 '5' => EditorKey.page_up,
                                 '6' => EditorKey.page_down,
-                                else => EditorKey{ .char = ch2 },
+                                '7' => EditorKey.home_key,
+                                '8' => EditorKey.end_key,
+                                else => EditorKey{ .char = esc },
                             };
-                        } else return EditorKey{ .char = ch3 };
+                        } else return EditorKey{ .char = esc };
                     },
                     'A' => EditorKey.arrow_up,
                     'B' => EditorKey.arrow_down,
                     'C' => EditorKey.arrow_right,
                     'D' => EditorKey.arrow_left,
-                    else => EditorKey{ .char = ch2 },
+                    'H' => EditorKey.home_key,
+                    'F' => EditorKey.end_key,
+                    else => EditorKey{ .char = esc },
+                };
+            } else if (ch1 == 'O') {
+                return switch (ch2) {
+                    'H' => EditorKey.home_key,
+                    'F' => EditorKey.end_key,
+                    else => EditorKey{ .char = esc },
                 };
             } else {
-                return EditorKey{ .char = ch1 };
+                return EditorKey{ .char = esc };
             };
         }
         return EditorKey{ .char = ch };
@@ -182,6 +196,12 @@ fn editorProcessKeypress() !bool {
             for (0..editor_config.screen_rows) |_| {
                 editorMoveCursor(EditorKey.arrow_down);
             }
+        },
+        EditorKey.home_key => {
+            editor_config.cx = 0;
+        },
+        EditorKey.end_key => {
+            editor_config.cx += editor_config.screen_cols - 1;
         },
         EditorKey.char => |ch| {
             quit = ch == ctrl_key('q');
