@@ -26,7 +26,7 @@ var editor_config = struct {
 const EditorKey = union(enum) {
     char: u8,
 
-    timeout,
+    del_key,
 
     arrow_left,
     arrow_right,
@@ -37,6 +37,8 @@ const EditorKey = union(enum) {
     page_down,
     home_key,
     end_key,
+
+    timeout,
 };
 
 const TerminalError = error{
@@ -86,6 +88,7 @@ fn editorReadKey() !EditorKey {
                         return if (ch3 == '~') {
                             return switch (ch2) {
                                 '1' => EditorKey.home_key,
+                                '3' => EditorKey.del_key,
                                 '4' => EditorKey.end_key,
                                 '5' => EditorKey.page_up,
                                 '6' => EditorKey.page_down,
@@ -203,6 +206,7 @@ fn editorProcessKeypress() !bool {
         EditorKey.end_key => {
             editor_config.cx += editor_config.screen_cols - 1;
         },
+        EditorKey.del_key => {},
         EditorKey.char => |ch| {
             quit = ch == ctrl_key('q');
         },
