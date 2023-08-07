@@ -16,9 +16,11 @@ const out_writer = io.getStdOut().writer();
 const stdout_fileno = std.os.STDOUT_FILENO;
 
 const Erow = []u8;
+const Render = ArrayList(u8);
 
 const EditorConfig = struct {
     allocator: Allocator,
+    rx: usize = 0,
     cx: usize = 0,
     cy: usize = 0,
     screen_rows: usize = undefined,
@@ -26,12 +28,14 @@ const EditorConfig = struct {
     row_offset: usize = 0,
     col_offset: usize = 0,
     row: ArrayList(Erow),
+    render: ArrayList(Render),
     orig_termios: c.struct_termios = undefined,
 
     fn init(allocator: Allocator) EditorConfig {
         return EditorConfig{
             .allocator = allocator,
             .row = ArrayList(Erow).init(allocator),
+            .render = ArrayList(ArrayList(u8)).init(allocator),
         };
     }
 
@@ -40,6 +44,11 @@ const EditorConfig = struct {
             self.allocator.free(i);
         }
         self.row.deinit();
+
+        for (self.render.items) |i| {
+            i.deinit();
+        }
+        self.render.deinit();
     }
 };
 
@@ -90,7 +99,7 @@ fn enableRawMode() !void {
 }
 
 fn disableRawMode() void {
-    _ = c.tcsetattr(stdin_fileno, c.TCSAFLUSH, &ec.orig_termios);
+    // _ = c.tcsetattr(stdin_fileno, c.TCSAFLUSH, &ec.orig_termios);
 }
 
 fn ctrl_key(ch: u8) u8 {
@@ -179,11 +188,38 @@ fn getWindowSize(rows: *usize, cols: *usize) !void {
     }
 }
 
+fn editorRowCxToRx(row: []const u8, cx: usize) usize {
+    var rx: usize = 0;
+    const tab_stop = kilo_options.kilo_tab_stop;
+    for (0..cx) |i| {
+        if (i < row.len and row[i] == '\t') {
+            rx += (tab_stop - 1) - (rx % tab_stop);
+        }
+        rx += 1;
+    }
+
+    return rx;
+}
+fn editorUpdateRow(allocator: Allocator, row: []const u8) !void {
+    var render = try ArrayList(u8).initCapacity(allocator, row.len);
+    for (row) |ch| {
+        if (ch == '\t') {
+            for (0..kilo_options.kilo_tab_stop) |_| {
+                try render.append(' ');
+            }
+        } else {
+            try render.append(ch);
+        }
+    }
+    try ec.render.append(render);
+}
+
 fn editorAppendRow(allocator: Allocator, row: []const u8) !void {
     var row_cp = try allocator.alloc(u8, row.len);
     @memcpy(row_cp, row);
 
     try ec.row.append(row_cp);
+    try editorUpdateRow(allocator, row_cp);
 }
 
 fn editorOpen(allocator: Allocator, file: []const u8) !void {
@@ -265,17 +301,21 @@ fn editorProcessKeypress() !bool {
 }
 
 fn editorScroll() void {
+    ec.rx = 0;
+    if (ec.cy < ec.row.items.len) {
+        ec.rx = editorRowCxToRx(ec.row.items[ec.cy], ec.cx);
+    }
     if (ec.cy < ec.row_offset) {
         ec.row_offset = ec.cy;
     }
     if (ec.cy >= ec.row_offset + ec.screen_rows) {
         ec.row_offset = ec.cy - ec.screen_rows + 1;
     }
-    if (ec.cx < ec.col_offset) {
-        ec.col_offset = ec.cx;
+    if (ec.rx < ec.col_offset) {
+        ec.col_offset = ec.rx;
     }
-    if (ec.cx >= ec.col_offset + ec.screen_cols) {
-        ec.col_offset = ec.cx - ec.screen_cols + 1;
+    if (ec.rx >= ec.col_offset + ec.screen_cols) {
+        ec.col_offset = ec.rx - ec.screen_cols + 1;
     }
 }
 
@@ -304,10 +344,11 @@ fn editorDrawRows(abuf: *ArrayList(u8)) !void {
                 try abuf.appendSlice("~");
             }
         } else {
-            const row = ec.row.items[file_row];
-            if (ec.col_offset > row.len) {
+            const render = ec.render.items[file_row];
+            if (ec.col_offset > render.items.len) {
                 try abuf.appendSlice("");
             } else {
+                const row = ec.row.items[file_row];
                 const row_len = row.len - ec.col_offset;
                 const l = @min(ec.screen_cols, row_len);
                 try abuf.appendSlice(row[ec.col_offset .. ec.col_offset + l]);
@@ -333,7 +374,7 @@ fn editorRefreshScreen(allocator: Allocator) !void {
     try editorDrawRows(&abuf);
 
     var buf: [32]u8 = undefined;
-    const move_cur = try std.fmt.bufPrint(&buf, "\x1b[{d};{d}H", .{ ec.cy - ec.row_offset + 1, ec.cx - ec.col_offset + 1 });
+    const move_cur = try std.fmt.bufPrint(&buf, "\x1b[{d};{d}H", .{ ec.cy - ec.row_offset + 1, ec.rx - ec.col_offset + 1 });
     try abuf.appendSlice(move_cur);
 
     try abuf.appendSlice("\x1b[?25h");

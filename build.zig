@@ -7,6 +7,7 @@ pub fn build(b: *std.Build) void {
     // Add options during build time so we can use them during compile time
     const options = b.addOptions();
     options.addOption([]const u8, "kilo_version", "0.1.0");
+    options.addOption(usize, "kilo_tab_stop",8);
 
     // Standard target options allows the person running `zig build` to choose
     // what target to build for. Here we do not override the defaults, which
